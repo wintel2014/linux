@@ -624,6 +624,12 @@ static __initdata unsigned long long lapic_cal_tsc1, lapic_cal_tsc2;
 static __initdata unsigned long lapic_cal_pm1, lapic_cal_pm2;
 static __initdata unsigned long lapic_cal_j1, lapic_cal_j2;
 
+typedef void (*handler_t)(struct clock_event_device *);
+typedef struct {
+    handler_t handler_array[8];
+    int size;
+} handlers_t;
+static DEFINE_PER_CPU(handlers_t, handlers);
 /*
  * Temporary interrupt handler.
  */
@@ -929,6 +935,26 @@ static void local_apic_timer_interrupt(void)
 	 * the NMI deadlock-detector uses this.
 	 */
 	inc_irq_stat(apic_timer_irqs);
+
+    handlers_t* handlers_ptr = this_cpu_ptr(&handlers);
+    int i=0;
+    for(; i<handlers_ptr->size; i++)
+    {
+        if(evt->event_handler == handlers_ptr->handler_array[i])
+            break;
+    }
+    if(i >= sizeof(*handlers_ptr)/sizeof(handlers_ptr->handler_array[0]))
+    {
+        printk("cpu[%d] local_apic_timer_interrupt: clock_event_device->event_handler=%pf\n", cpu, evt->event_handler);
+        dump_stack();
+    }
+    else if(i == handlers_ptr->size )
+    {
+        printk("cpu[%d] local_apic_timer_interrupt: clock_event_device->event_handler=%pf\n", cpu, evt->event_handler);
+        dump_stack();
+        handlers_ptr->handler_array[handlers_ptr->size++] = evt->event_handler;
+
+    }
 
 	evt->event_handler(evt);
 }
