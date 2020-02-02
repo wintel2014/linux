@@ -1195,6 +1195,17 @@ EXPORT_SYMBOL_GPL(hrtimer_active);
  * __run_hrtimer() invocations.
  */
 
+#define JZ_DUMP_HRTIMER_CB
+
+#ifdef JZ_DUMP_HRTIMER_CB
+typedef enum hrtimer_restart (*fun_t)(struct hrtimer *);
+typedef struct {
+    fun_t func_array[32];
+    int size;
+} functions_t;
+static DEFINE_PER_CPU(functions_t, functions);
+#endif
+
 static void __run_hrtimer(struct hrtimer_cpu_base *cpu_base,
 			  struct hrtimer_clock_base *base,
 			  struct hrtimer *timer, ktime_t *now)
@@ -1219,6 +1230,25 @@ static void __run_hrtimer(struct hrtimer_cpu_base *cpu_base,
 	__remove_hrtimer(timer, base, HRTIMER_STATE_INACTIVE, 0);
 	timer_stats_account_hrtimer(timer);
 	fn = timer->function;
+
+#ifdef JZ_DUMP_HRTIMER_CB
+	int cpu = smp_processor_id();
+    int i=0;
+	functions_t* functions_ptr;
+    functions_ptr = this_cpu_ptr(&functions);
+    for(; i<functions_ptr->size; i++)
+    {
+        if(fn == functions_ptr->func_array[i])
+           break;
+    }
+    if(i >= sizeof(*functions_ptr)/sizeof(functions_ptr->func_array[0]))
+        printk("cpu[%d] __run_hrtimer fn=%pf\n", cpu, fn);
+    else if(i == functions_ptr->size )
+    {
+       printk("cpu[%d] __run_hrtimer fn=%pf\n", cpu, fn);
+       functions_ptr->func_array[functions_ptr->size++] = fn;
+    }
+#endif
 
 	/*
 	 * Clear the 'is relative' flag for the TIME_LOW_RES case. If the

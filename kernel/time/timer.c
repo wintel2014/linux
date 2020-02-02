@@ -206,6 +206,7 @@ struct timer_base {
 } ____cacheline_aligned;
 
 static DEFINE_PER_CPU(struct timer_base, timer_bases[NR_BASES]);
+static DEFINE_PER_CPU(unsigned int, dump_index);
 
 #if defined(CONFIG_SMP) && defined(CONFIG_NO_HZ_COMMON)
 unsigned int sysctl_timer_migration = 1;
@@ -1269,6 +1270,15 @@ int del_timer_sync(struct timer_list *timer)
 }
 EXPORT_SYMBOL(del_timer_sync);
 #endif
+#define JZ_DUMP_LRES_CB
+#ifdef JZ_DUMP_LRES_CB
+typedef void (*fun_t)(unsigned long);
+typedef struct {
+    fun_t func_array[32];
+    int size;
+} functions_t;
+static DEFINE_PER_CPU(functions_t, functions);
+#endif
 
 static void call_timer_fn(struct timer_list *timer, void (*fn)(unsigned long),
 			  unsigned long data)
@@ -1297,6 +1307,24 @@ static void call_timer_fn(struct timer_list *timer, void (*fn)(unsigned long),
 	trace_timer_expire_entry(timer);
 	fn(data);
 	trace_timer_expire_exit(timer);
+
+#ifdef JZ_DUMP_LRES_CB
+	int cpu; cpu = smp_processor_id();
+	functions_t* functions_ptr = this_cpu_ptr(&functions);
+    int i=0;
+    for(; i<functions_ptr->size; i++)
+    {
+        if(fn == functions_ptr->func_array[i])
+           break;
+    }
+    if(i >= sizeof(*functions_ptr)/sizeof(functions_ptr->func_array[0]))
+        printk("cpu[%d] call_timer_fn low_res fn=%pf\n", cpu, fn);
+    else if(i == functions_ptr->size )
+    {
+       printk("cpu[%d] call_timer_fn low_res fn=%pf\n", cpu, fn);
+       functions_ptr->func_array[functions_ptr->size++] = fn;
+    }
+#endif
 
 	lock_map_release(&lockdep_map);
 
@@ -1591,6 +1619,15 @@ static inline int collect_expired_timers(struct timer_base *base,
 void update_process_times(int user_tick)
 {
 	struct task_struct *p = current;
+
+    unsigned int index = raw_cpu_read(dump_index);
+    raw_cpu_write(dump_index, ++index);
+
+    if(index % HZ == 0)
+    {
+        printk("update_process_times on CPU [%d]\n", raw_smp_processor_id());
+        dump_stack();
+    }
 
 	/* Note: this timer irq context must be accounted for as well. */
 	account_process_tick(p, user_tick);
