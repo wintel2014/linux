@@ -1236,6 +1236,11 @@ static void __run_hrtimer(struct hrtimer_cpu_base *cpu_base,
     int i=0;
 	functions_t* functions_ptr;
     functions_ptr = this_cpu_ptr(&functions);
+    if(tick_nohz_full_cpu(smp_processor_id()))
+    {
+        printk("nohz_full_cpu[%d] __run_hrtimer fn=%pf\n", cpu, fn);
+        dump_stack();
+    }
     for(; i<functions_ptr->size; i++)
     {
         if(fn == functions_ptr->func_array[i])

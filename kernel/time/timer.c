@@ -206,7 +206,9 @@ struct timer_base {
 } ____cacheline_aligned;
 
 static DEFINE_PER_CPU(struct timer_base, timer_bases[NR_BASES]);
+#if 0
 static DEFINE_PER_CPU(unsigned int, dump_index);
+#endif
 
 #if defined(CONFIG_SMP) && defined(CONFIG_NO_HZ_COMMON)
 unsigned int sysctl_timer_migration = 1;
@@ -1309,9 +1311,14 @@ static void call_timer_fn(struct timer_list *timer, void (*fn)(unsigned long),
 	trace_timer_expire_exit(timer);
 
 #ifdef JZ_DUMP_LRES_CB
-	int cpu; cpu = smp_processor_id();
+	int cpu = smp_processor_id();
 	functions_t* functions_ptr = this_cpu_ptr(&functions);
     int i=0;
+    if(tick_nohz_full_cpu(cpu))
+    {
+        printk("nohz_full_cpu[%d] call_timer_fn low_res fn=%pf\n", cpu, fn);
+        dump_stack();
+    }
     for(; i<functions_ptr->size; i++)
     {
         if(fn == functions_ptr->func_array[i])
@@ -1620,6 +1627,7 @@ void update_process_times(int user_tick)
 {
 	struct task_struct *p = current;
 
+#if 0
     unsigned int index = raw_cpu_read(dump_index);
     raw_cpu_write(dump_index, ++index);
 
@@ -1628,6 +1636,7 @@ void update_process_times(int user_tick)
         printk("update_process_times on CPU [%d]\n", raw_smp_processor_id());
         dump_stack();
     }
+#endif
 
 	/* Note: this timer irq context must be accounted for as well. */
 	account_process_tick(p, user_tick);

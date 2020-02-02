@@ -73,6 +73,13 @@ void tick_setup_oneshot(struct clock_event_device *newdev,
 /**
  * tick_switch_to_oneshot - switch to oneshot mode
  */
+ typedef void (*handler_t)(struct clock_event_device *);
+ typedef struct {
+     handler_t handler_array[8];
+     int size;
+ } handlers_t;
+ static DEFINE_PER_CPU(handlers_t, handlers);
+
 int tick_switch_to_oneshot(void (*handler)(struct clock_event_device *))
 {
 	struct tick_device *td = this_cpu_ptr(&tick_cpu_device);
@@ -96,6 +103,28 @@ int tick_switch_to_oneshot(void (*handler)(struct clock_event_device *))
 	}
 
 	td->mode = TICKDEV_MODE_ONESHOT;
+
+    int cpu = smp_processor_id();
+    handlers_t* handlers_ptr = this_cpu_ptr(&handlers);
+    int i=0;
+    for(; i<handlers_ptr->size; i++)
+    {
+        if(handler == handlers_ptr->handler_array[i])
+            break;
+    }
+    if(i >= sizeof(*handlers_ptr)/sizeof(handlers_ptr->handler_array[0]))
+    {
+        printk("cpu[%d] tick_switch_to_oneshot: clock_event_device->event_handler=%pf\n", cpu, handler);
+        dump_stack();
+    }
+    else if(i == handlers_ptr->size )
+    {
+        printk("cpu[%d] tick_switch_to_oneshot: clock_event_device->event_handler=%pf\n", cpu, handler);
+        dump_stack();
+        handlers_ptr->handler_array[handlers_ptr->size++] = handler;
+
+    }
+
 	dev->event_handler = handler;
 	clockevents_switch_state(dev, CLOCK_EVT_STATE_ONESHOT);
 	tick_broadcast_switch_to_oneshot();
