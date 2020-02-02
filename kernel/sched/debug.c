@@ -443,6 +443,11 @@ print_task(struct seq_file *m, struct rq *rq, struct task_struct *p)
 	SEQ_printf(m, "\n");
 }
 
+#include "../time/tick-internal.h"
+extern struct tick_sched tick_cpu_sched;
+extern atomic_t tick_dep_mask;
+bool check_tick_dependency(atomic_t *dep);
+bool can_stop_full_tick(struct tick_sched *ts);
 static void print_rq(struct seq_file *m, struct rq *rq, int rq_cpu)
 {
 	struct task_struct *g, *p;
@@ -461,6 +466,16 @@ static void print_rq(struct seq_file *m, struct rq *rq, int rq_cpu)
 
 		print_task(m, rq, p);
 	}
+
+    SEQ_printf(m, "\nsched_can_stop_tick = %d", sched_can_stop_tick(rq));
+    struct tick_sched *ts = this_cpu_ptr(&tick_cpu_sched);
+    SEQ_printf(m, "\ncan_stop_full_tick = %d", can_stop_full_tick(ts));
+    SEQ_printf(m, "\ntick_dep_mask = %d", check_tick_dependency(&tick_dep_mask));
+    SEQ_printf(m, "\nts = %d", check_tick_dependency(&ts->tick_dep_mask));
+    SEQ_printf(m, "\ncurrent = %d", check_tick_dependency(&current->tick_dep_mask));
+    SEQ_printf(m, "\ncurrent->signal = %d", check_tick_dependency(&current->signal->tick_dep_mask));
+
+
 	rcu_read_unlock();
 }
 
@@ -549,6 +564,7 @@ void print_rt_rq(struct seq_file *m, int cpu, struct rt_rq *rt_rq)
 	SEQ_printf(m, "  .%-30s: %Ld.%06ld\n", #x, SPLIT_NS(rt_rq->x))
 
 	P(rt_nr_running);
+	P(rr_nr_running);
 	P(rt_throttled);
 	PN(rt_time);
 	PN(rt_runtime);

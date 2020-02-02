@@ -33,7 +33,7 @@
 /*
  * Per-CPU nohz control structure
  */
-static DEFINE_PER_CPU(struct tick_sched, tick_cpu_sched);
+DEFINE_PER_CPU(struct tick_sched, tick_cpu_sched);
 
 struct tick_sched *tick_get_tick_sched(int cpu)
 {
@@ -157,9 +157,9 @@ static void tick_sched_handle(struct tick_sched *ts, struct pt_regs *regs)
 cpumask_var_t tick_nohz_full_mask;
 cpumask_var_t housekeeping_mask;
 bool tick_nohz_full_running;
-static atomic_t tick_dep_mask;
+atomic_t tick_dep_mask;
 
-static bool check_tick_dependency(atomic_t *dep)
+bool check_tick_dependency(atomic_t *dep)
 {
 	int val = atomic_read(dep);
 
@@ -186,7 +186,7 @@ static bool check_tick_dependency(atomic_t *dep)
 	return false;
 }
 
-static bool can_stop_full_tick(struct tick_sched *ts)
+bool can_stop_full_tick(struct tick_sched *ts)
 {
 	WARN_ON_ONCE(!irqs_disabled());
 
@@ -205,9 +205,19 @@ static bool can_stop_full_tick(struct tick_sched *ts)
 	return true;
 }
 
+#define JZ_DUMP_STACK
 static void nohz_full_kick_func(struct irq_work *work)
 {
 	/* Empty, the tick restart happens on tick_nohz_irq_exit() */
+#ifdef JZ_DUMP_STACK
+	static atomic_t count;
+	atomic_inc(&count);
+	if(atomic_read(&count)%5==0)
+	{
+		printk("nohz_full_kick_func on cpu [%d]\n", smp_processor_id());
+		dump_stack();
+	}
+#endif
 }
 
 static DEFINE_PER_CPU(struct irq_work, nohz_full_kick_work) = {
@@ -225,6 +235,15 @@ static void tick_nohz_full_kick(void)
 	if (!tick_nohz_full_cpu(smp_processor_id()))
 		return;
 
+#ifdef JZ_DUMP_STACK
+	static atomic_t count;
+	atomic_inc(&count);
+	if(atomic_read(&count)%5 == 0)
+	{
+		printk("tick_nohz_full_kick on cpu [%d]\n", smp_processor_id());
+		dump_stack();
+	}
+#endif
 	irq_work_queue(this_cpu_ptr(&nohz_full_kick_work));
 }
 
@@ -646,8 +665,17 @@ u64 get_cpu_iowait_time_us(int cpu, u64 *last_update_time)
 }
 EXPORT_SYMBOL_GPL(get_cpu_iowait_time_us);
 
+static DEFINE_PER_CPU(unsigned int, nohz_restart_index);
 static void tick_nohz_restart(struct tick_sched *ts, ktime_t now)
 {
+	unsigned int dump_index = raw_cpu_read(nohz_restart_index);
+    raw_cpu_write(nohz_restart_index, ++dump_index);
+    if(dump_index % HZ == 0)
+    {
+        printk("tick_nohz_restart cpu[%d], hrtimer_function=%pf",smp_processor_id(), ts->sched_timer.function);
+        dump_stack();
+    }
+
 	hrtimer_cancel(&ts->sched_timer);
 	hrtimer_set_expires(&ts->sched_timer, ts->last_tick);
 
@@ -660,6 +688,7 @@ static void tick_nohz_restart(struct tick_sched *ts, ktime_t now)
 		tick_program_event(hrtimer_get_expires(&ts->sched_timer), 1);
 }
 
+static DEFINE_PER_CPU(unsigned int, nohz_dump_index);
 static ktime_t tick_nohz_stop_sched_tick(struct tick_sched *ts,
 					 ktime_t now, int cpu)
 {
@@ -676,8 +705,12 @@ static ktime_t tick_nohz_stop_sched_tick(struct tick_sched *ts,
 	} while (read_seqretry(&jiffies_lock, seq));
 	ts->last_jiffies = basejiff;
 
+    //int cpu = smp_processor_id();
 	if (rcu_needs_cpu(basemono, &next_rcu) ||
 	    arch_needs_cpu() || irq_work_needs_cpu()) {
+        if(tick_nohz_full_cpu(cpu))
+		    printk("cpu[%d]: rcu_needs_cpu=%d arch_needs_cpu=%d, irq_work_needs_cpu=%d\n", cpu,
+		        rcu_needs_cpu(basemono, &next_rcu), arch_needs_cpu(), irq_work_needs_cpu());
 		next_tick = basemono + TICK_NSEC;
 	} else {
 		/*
@@ -799,6 +832,14 @@ static ktime_t tick_nohz_stop_sched_tick(struct tick_sched *ts,
 		goto out;
 	}
 
+    unsigned int dump_index = raw_cpu_read(nohz_dump_index);
+    raw_cpu_write(nohz_dump_index, ++dump_index);
+    if(dump_index % HZ == 0)
+    {
+        printk("cpu[%d] delta=%lldns, basemono=%lldms, max_defer=%lldms, expires=%lldms, next_tick=%lldms tick=%lldms nohz_mode=%d\n", cpu,
+            delta, basemono/1000000, scheduler_tick_max_deferment()/1000000, expires/1000000, next_tick/1000000, tick.tv64/1000000, ts->nohz_mode);
+        dump_stack();
+    }
 	if (ts->nohz_mode == NOHZ_MODE_HIGHRES)
 		hrtimer_start(&ts->sched_timer, tick, HRTIMER_MODE_ABS_PINNED);
 	else
@@ -844,7 +885,13 @@ static void tick_nohz_full_update_tick(struct tick_sched *ts)
 		return;
 
 	if (can_stop_full_tick(ts))
+	{
+#ifdef JZ_DUMP_STACK
+		printk("tick_nohz_full_update_tick on cpu[%d]\n",smp_processor_id());
+        dump_stack();
+#endif
 		tick_nohz_stop_sched_tick(ts, ktime_get(), cpu);
+	}
 	else if (ts->tick_stopped)
 		tick_nohz_restart_sched_tick(ts, ktime_get());
 #endif
@@ -1058,6 +1105,8 @@ static void tick_nohz_handler(struct clock_event_device *dev)
 	tick_sched_do_timer(now);
 	tick_sched_handle(ts, regs);
 
+	printk("tick_nohz_handler: stopped=%d\n",ts->tick_stopped);
+    dump_stack();
 	/* No need to reprogram if we are running tickless  */
 	if (unlikely(ts->tick_stopped))
 		return;
@@ -1099,9 +1148,12 @@ static void tick_nohz_switch_to_nohz(void)
 	next = tick_init_jiffy_update();
 
 	hrtimer_set_expires(&ts->sched_timer, next);
-	hrtimer_forward_now(&ts->sched_timer, tick_period);
+	hrtimer_forward_now(&ts->sched_timer, tick_period); //sched_timer is used to calculate the next event only
 	tick_program_event(hrtimer_get_expires(&ts->sched_timer), 1);
 	tick_nohz_activate(ts, NOHZ_MODE_LOWRES);
+    // this function never be called if hrtimer is enabled
+    printk("tick_nohz_switch_to_nohz\n");
+    dump_stack();
 }
 
 static inline void tick_nohz_irq_enter(void)
