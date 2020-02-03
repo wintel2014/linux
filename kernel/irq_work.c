@@ -75,6 +75,9 @@ bool irq_work_queue_on(struct irq_work *work, int cpu)
 	if (!irq_work_claim(work))
 		return false;
 
+    if(tick_nohz_full_cpu(cpu))
+        dump_stack();
+        
 	if (llist_add(&work->llnode, &per_cpu(raised_list, cpu)))
 		arch_send_call_function_single_ipi(cpu);
 
@@ -93,6 +96,10 @@ bool irq_work_queue(struct irq_work *work)
 	/* Queue the entry and raise the IPI if needed. */
 	preempt_disable();
 
+    if(tick_nohz_full_cpu(smp_processor_id()))
+    {
+        dump_stack();
+    }
 	/* If the work is "lazy", handle it from next tick if any */
 	if (work->flags & IRQ_WORK_LAZY) {
 		if (llist_add(&work->llnode, this_cpu_ptr(&lazy_list)) &&

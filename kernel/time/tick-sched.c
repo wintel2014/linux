@@ -681,7 +681,7 @@ static void tick_nohz_restart(struct tick_sched *ts, ktime_t now)
 		tick_program_event(hrtimer_get_expires(&ts->sched_timer), 1);
 }
 
-#define JZ_DUMP_STOP_TICK 0
+#define JZ_DUMP_STOP_TICK 1
 #if JZ_DUMP_STOP_TICK
 static DEFINE_PER_CPU(unsigned int, nohz_dump_index);
 #endif
