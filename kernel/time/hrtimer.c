@@ -1290,6 +1290,7 @@ void hrtimer_interrupt(struct clock_event_device *dev)
 	struct hrtimer_cpu_base *cpu_base = this_cpu_ptr(&hrtimer_bases);
 	ktime_t expires_next, now, entry_time, delta;
 	int retries = 0;
+    static atomic_t max_duration = ATOMIC_INIT(0);
 
 	BUG_ON(!cpu_base->hres_active);
 	cpu_base->nr_events++;
@@ -1365,8 +1366,12 @@ retry:
 	else
 		expires_next = ktime_add(now, delta);
 	tick_program_event(expires_next, 1);
-	printk_once(KERN_WARNING "hrtimer: interrupt took %llu ns\n",
+    if(delta >  atomic_read(&max_duration))
+    {
+	    printk("hrtimer: interrupt took %llu ns\n",
 		    ktime_to_ns(delta));
+        atomic_set(&max_duration, delta);
+    }
 }
 
 /* called with interrupts disabled */
